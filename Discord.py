@@ -10,6 +10,9 @@ import discord
 from discord.ext import commands
 from discord import Interaction
 
+role_name = "주식"  # 주식 역할의 이름
+channel_name = "주식"  # 주식 채널의 이름
+
 stocks = {
     'AAPL': 150.0,
     'GOOGL': 2500.0,
@@ -35,7 +38,7 @@ async def 주식시세_업데이트():
 async def 가격_변동_알림():
     while True:
         await asyncio.sleep(30)  # 30초마다 가격 변동 알림
-        channel = bot.get_channel(1170630788350480425)  # 알림을 전송할 채널 ID
+        channel = bot.get_channel(1170669823286591488)  # 알림을 전송할 채널 ID
         async for message in channel.history(limit=10):
             if message.author == bot.user:
                 await message.delete()  # 이전 알림 삭제
@@ -46,6 +49,17 @@ async def 가격_변동_알림():
             embed.add_field(name="현재 가격", value=f"${price}", inline=False)
             await channel.send(embed=embed)
 
+async def check_role_and_channel(interaction: Interaction):
+    role = discord.utils.get(interaction.guild.roles, name=role_name)
+    if role not in interaction.user.roles:
+        await interaction.response.send_message(content=f"{interaction.user.mention}님, 이 명령어를 사용하려면 '{role_name}' 역할이 필요합니다.")
+        return False
+
+    if interaction.channel.name != channel_name:
+        await interaction.response.send_message(content=f"{interaction.user.mention}님, 이 명령어는 '{channel_name}' 채널에서만 사용 가능합니다.")
+        return False
+
+    return True
 
 @bot.event
 async def on_ready():
@@ -82,7 +96,7 @@ async def 사전예약(interaction: Interaction):
 
 commands_grouped = {
     "사전예약 기능": ["사전예약"],
-    "주식 기능": ["주식시세", "매수", "매도", "잔고", "입금", "송금", "주식추가", "보유주식"],
+    "주식 기능": ["주식사용", "주식비사용", "주식시세", "매수", "매도", "잔고", "입금", "송금", "주식추가", "보유주식"],
     # 추가로 그룹을 만들 수 있습니다.
 }
 
@@ -98,9 +112,38 @@ async def 도움말(interaction: Interaction):
         embed.add_field(name='---------------', value='\u200b', inline=False)  # 수평선 추가
     await interaction.response.send_message(embed=embed)
 
+@bot.tree.command(name="주식사용", description="주식 역할을 부여합니다.")
+async def 주식사용(interaction: Interaction):
+    role = discord.utils.get(interaction.guild.roles, name=role_name)
+    if role is None:
+        await interaction.response.send_message(content=f"'{role_name}' 역할을 찾을 수 없습니다.")
+        return
+
+    if role in interaction.user.roles:
+        await interaction.response.send_message(content=f"{interaction.user.mention}님, 이미 '{role_name}' 역할이 있습니다.")
+        return
+
+    await interaction.user.add_roles(role)
+    await interaction.response.send_message(content=f"{interaction.user.mention}님, '{role_name}' 역할이 부여되었습니다.")
+
+@bot.tree.command(name="주식비사용", description="주식 역할을 해제합니다.")
+async def 주식비사용(interaction: Interaction):
+    role = discord.utils.get(interaction.guild.roles, name=role_name)
+    if role is None:
+        await interaction.response.send_message(content=f"'{role_name}' 역할을 찾을 수 없습니다.")
+        return
+
+    if role not in interaction.user.roles:
+        await interaction.response.send_message(content=f"{interaction.user.mention}님, '{role_name}' 역할이 없습니다.")
+        return
+
+    await interaction.user.remove_roles(role)
+    await interaction.response.send_message(content=f"{interaction.user.mention}님, '{role_name}' 역할이 해제되었습니다.")
 
 @bot.tree.command(name="주식시세", description="주식의 현재 시세를 확인합니다.")
 async def 주식시세(interaction: Interaction, stock: str):
+    if not await check_role_and_channel(interaction):  # 역할과 채널 확인
+        return
     if stock.upper() in stocks:
         price = stocks[stock.upper()]
         await interaction.response.send_message(content=f"{stock.upper()}의 현재 시세는 ${price}입니다.")
@@ -109,6 +152,8 @@ async def 주식시세(interaction: Interaction, stock: str):
 
 @bot.tree.command(name="매수", description="주식을 매수합니다. 사용법: /매수 [주식 종목] [수량]")
 async def 매수(interaction: Interaction, stock: str, quantity: int):
+    if not await check_role_and_channel(interaction):  # 역할과 채널 확인
+        return
     if stock.upper() in stocks:
         price = stocks[stock.upper()]
         total_cost = price * quantity
@@ -125,6 +170,8 @@ async def 매수(interaction: Interaction, stock: str, quantity: int):
 
 @bot.tree.command(name="매도", description="주식을 매도합니다. 사용법: /매도 [주식 종목] [수량]")
 async def 매도(interaction: Interaction, stock: str, quantity: int):
+    if not await check_role_and_channel(interaction):  # 역할과 채널 확인
+        return
     if stock.upper() in stocks:
         if interaction.user.id not in user_stocks or stock.upper() not in user_stocks[interaction.user.id] or user_stocks[interaction.user.id][stock.upper()] < quantity:
             await interaction.response.send_message(content=f"{stock.upper()} {quantity}주를 매도할 수 없습니다. 매도하려는 주식을 충분히 보유하고 있는지 확인해주세요.")
@@ -144,6 +191,8 @@ async def 매도(interaction: Interaction, stock: str, quantity: int):
 
 @bot.tree.command(name="잔고", description="사용자의 주식 잔고를 확인합니다.")
 async def 잔고(interaction: Interaction):
+    if not await check_role_and_channel(interaction):  # 역할과 채널 확인
+        return
     if interaction.user.id not in user_balances:
         user_balances[interaction.user.id] = initial_balance
     balance = user_balances[interaction.user.id]
@@ -151,6 +200,8 @@ async def 잔고(interaction: Interaction):
 
 @bot.tree.command(name="입금", description="지정된 사용자의 잔고에 금액을 입금합니다.")
 async def 입금(interaction: Interaction, user: discord.User, amount: float):
+    if not await check_role_and_channel(interaction):  # 역할과 채널 확인
+        return
     guild = interaction.guild
     member = await guild.fetch_member(interaction.user.id)
     if member.guild_permissions.administrator:
@@ -168,6 +219,8 @@ async def 입금(interaction: Interaction, user: discord.User, amount: float):
 
 @bot.tree.command(name="송금", description="지정된 사용자에게 금액을 송금합니다.")
 async def 송금(interaction: Interaction, recipient: discord.User, amount: float):
+    if not await check_role_and_channel(interaction):  # 역할과 채널 확인
+        return
     sender_id = interaction.user.id
     recipient_id = recipient.id
 
@@ -195,6 +248,8 @@ async def 송금(interaction: Interaction, recipient: discord.User, amount: floa
 
 @bot.tree.command(name="주식추가", description="관리자만 가능")
 async def 주식추가(interaction: Interaction, stock: str, price: float):
+    if not await check_role_and_channel(interaction):  # 역할과 채널 확인
+        return
     guild = interaction.guild
     member = await guild.fetch_member(interaction.user.id)
 
@@ -214,6 +269,8 @@ async def 주식추가(interaction: Interaction, stock: str, price: float):
 
 @bot.tree.command(name="보유주식", description="사용자가 보유한 주식을 조회합니다. 사용법: /보유주식")
 async def 보유주식(interaction: Interaction):
+    if not await check_role_and_channel(interaction):  # 역할과 채널 확인
+        return
     user_id = interaction.user.id
     if user_id not in user_stocks or not user_stocks[user_id]:
         await interaction.response.send_message(content=f"{interaction.user.mention}님은 어떤 주식도 보유하고 있지 않습니다.")
