@@ -9,7 +9,9 @@ myToken = os.environ.get('DISCORD_TOKEN')
 import discord
 from discord.ext import commands
 from discord import Interaction
+import datetime
 
+user_stock_info = {}  # 각 사용자의 주식 구매 정보를 저장하는 딕셔너리
 role_name = "주식"  # 주식 역할의 이름
 channel_name = "주식"  # 주식 채널의 이름
 
@@ -27,27 +29,44 @@ initial_balance = 1000.0  # 초기 잔고 설정
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='/', intents=intents)
+previous_prices = {stock: price for stock, price in stocks.items()}  # 각 주식의 이전 가격을 저장하는 딕셔너리
 
 async def 주식시세_업데이트():
     while True:
         for stock in list(stocks.keys()):  # 딕셔너리의 복사본을 만들어 순회
-            new_price = stocks[stock] + random.uniform(-10, 10)  # 랜덤한 가격 변동
+            if random.random() < 0.01:  # 1%의 확률로 극악의 폭등 또는 폭락 발생
+                new_price = stocks[stock] + random.uniform(-50, 50)  # 극악의 폭등 또는 폭락
+            else:
+                new_price = stocks[stock] + random.uniform(-10, 10)  # 일반적인 가격 변동
+
+            if new_price <= 0:  # 주식 가격이 0 이하로 떨어지면
+                new_price = 0
+                channel = bot.get_channel(1170864694718890097)  # 알림을 전송할 채널 ID
+                await channel.send(f"{stock}의 가격이 0 이하로 떨어져 상장폐지 되었습니다.")
+                del stocks[stock]  # 주식 목록에서 제거
+                continue
+
             stocks[stock] = round(new_price, 2)  # 가격을 소수점 둘째 자리까지 반올림
         await asyncio.sleep(120)  # 120초마다 가격 업데이트
 
 async def 가격_변동_알림():
     while True:
         await asyncio.sleep(30)  # 30초마다 가격 변동 알림
-        channel = bot.get_channel(1170669823286591488)  # 알림을 전송할 채널 ID
+        channel = bot.get_channel(1170864694718890097)  # 알림을 전송할 채널 ID
         async for message in channel.history(limit=10):
             if message.author == bot.user:
                 await message.delete()  # 이전 알림 삭제
 
-        for stock in list(stocks.keys()):  # 딕셔너리의 복사본을 만들어 순회
+        for stock in list(stocks.keys()):  # 딕셔너리의 최신 상태를 읽음
             price = stocks[stock]
+            old_price = previous_prices[stock]
+            percentage_change = ((price - old_price) / old_price) * 100  # 가격 변동률 계산
+            previous_prices[stock] = price  # 가격 변동률 계산 후에 이전 가격을 업데이트
             embed = discord.Embed(title="주식 가격 변동 알림", description=f"{stock}의 가격이 갱신되었습니다.", color=0x00ff00)
             embed.add_field(name="현재 가격", value=f"${price}", inline=False)
+            embed.add_field(name="가격 변동률", value=f"{percentage_change:.2f}%", inline=False)  # 소수점 둘째 자리까지 표시
             await channel.send(embed=embed)
+
 
 async def check_role_and_channel(interaction: Interaction):
     role = discord.utils.get(interaction.guild.roles, name=role_name)
@@ -150,6 +169,7 @@ async def 주식시세(interaction: Interaction, stock: str):
     else:
         await interaction.response.send_message(content=f"{stock.upper()}은(는) 유효한 주식이 아닙니다.")
 
+
 @bot.tree.command(name="매수", description="주식을 매수합니다. 사용법: /매수 [주식 종목] [수량]")
 async def 매수(interaction: Interaction, stock: str, quantity: int):
     if not await check_role_and_channel(interaction):  # 역할과 채널 확인
@@ -163,7 +183,17 @@ async def 매수(interaction: Interaction, stock: str, quantity: int):
         else:
             user_balances[interaction.user.id] -= total_cost
             user_stocks[interaction.user.id] = user_stocks.get(interaction.user.id, {})
-            user_stocks[interaction.user.id][stock.upper()] = user_stocks[interaction.user.id].get(stock.upper(), 0) + quantity
+            user_stocks[interaction.user.id][stock.upper()] = user_stocks[interaction.user.id].get(stock.upper(),
+                                                                                                   0) + quantity
+
+            # 사용자의 주식 구매 정보를 저장
+            if interaction.user.id not in user_stock_info:
+                user_stock_info[interaction.user.id] = {}
+            user_stock_info[interaction.user.id][stock.upper()] = {
+                'buy_date': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),  # 구매일
+                'initial_price': price  # 초기 가격
+            }
+
             await interaction.response.send_message(content=f"{stock.upper()} {quantity}주를 매수하였습니다.")
     else:
         await interaction.response.send_message(content=f"{stock.upper()}은(는) 유효한 주식이 아닙니다.")
@@ -278,7 +308,14 @@ async def 보유주식(interaction: Interaction):
 
     embed = discord.Embed(title="보유 주식", description=f"{interaction.user.mention}님의 보유 주식입니다.", color=0x0080ff)
     for stock, quantity in user_stocks[user_id].items():
-        embed.add_field(name=stock, value=f"{quantity}주", inline=False)
+        buy_date = user_stock_info[user_id][stock]['buy_date']
+        initial_price = user_stock_info[user_id][stock]['initial_price']
+        current_price = stocks[stock]
+        change_rate = ((current_price - initial_price) / initial_price) * 100
+
+        embed.add_field(name=stock,
+                        value=f"{quantity}주, 구매일: {buy_date}, 초기 가격: ${initial_price}, 현재 가격: ${current_price}, 가격 변동률: {change_rate:.2f}%",
+                        inline=False)
     await interaction.response.send_message(embed=embed)
 
 
