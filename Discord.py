@@ -59,14 +59,13 @@ async def 가격_변동_알림():
 
         for stock in list(stocks.keys()):  # 딕셔너리의 최신 상태를 읽음
             price = stocks[stock]
-            old_price = previous_prices[stock]
+            old_price = previous_prices.get(stock, price)  # 만약 이전 가격이 없다면 현재 가격을 이전 가격으로 사용
             percentage_change = ((price - old_price) / old_price) * 100  # 가격 변동률 계산
             previous_prices[stock] = price  # 가격 변동률 계산 후에 이전 가격을 업데이트
             embed = discord.Embed(title="주식 가격 변동 알림", description=f"{stock}의 가격이 갱신되었습니다.", color=0x00ff00)
             embed.add_field(name="현재 가격", value=f"${price}", inline=False)
             embed.add_field(name="가격 변동률", value=f"{percentage_change:.2f}%", inline=False)  # 소수점 둘째 자리까지 표시
             await channel.send(embed=embed)
-
 
 async def check_role_and_channel(interaction: Interaction):
     role = discord.utils.get(interaction.guild.roles, name=role_name)
