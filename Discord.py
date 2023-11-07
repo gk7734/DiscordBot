@@ -80,6 +80,8 @@ async def check_role_and_channel(interaction: Interaction):
 
     return True
 
+def download_stream(stream):
+    stream.download(filename='audio')
 @bot.event
 async def on_ready():
     await bot.change_presence(activity=discord.Streaming(name="개발", url="https://www.twitch.tv/kanetv8"))
@@ -317,6 +319,5 @@ async def 보유주식(interaction: Interaction):
                         value=f"{quantity}주, 구매일: {buy_date}, 초기 가격: ${initial_price}, 현재 가격: ${current_price}, 가격 변동률: {change_rate:.2f}%",
                         inline=False)
     await interaction.response.send_message(embed=embed)
-
 
 bot.run(myToken)
